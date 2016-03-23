@@ -14,7 +14,7 @@ NFG and Pkt parser libraries are loaded to the same (ryu/app/) director as the c
 called from the ryu directory as follows:
 
 
-PYTHONPATH=. ./bin/ryu-manager ryu/app/coupler 13.py
+PYTHONPATH=. ./bin/ryu-manager ryu/app/coupler_13.py
 
 
 This will activate the coupler and it will call the required libraries and instantiate any required modules for our network
