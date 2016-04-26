@@ -9,7 +9,7 @@ should be crafted"""
 #   Jacob Cox (jcox70@gatech.edu)                                   #
 #   Sean Donovan (sdonovan@gatech.edu)                              #
 # Ryuretic.py                                                       #
-# date 26 March 2016                                                #
+# date 25 April 2016                                                #
 #####################################################################
 # Copyright (C) 1883 Thomas Edison - All Rights Reserved            #
 # You may use, distribute and modify this code under the            #
@@ -26,7 +26,7 @@ should be crafted"""
     c) Pkt_Parse.py
     d) switch_mod.py
 2) In your controller terminal type: cd ryu
-3) Enter PYTHONPATH=. ./bin/ryu-manager ryu/app/coupler_child.py
+3) Enter PYTHONPATH=. ./bin/ryu-manager ryu/app/Ryuretic_Intf.py
 """
 ######################################################################
 import logging
@@ -42,6 +42,7 @@ from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
+from ryu.lib.packet import ethernet,ipv4,arp,icmp,tcp,udp
 
 class coupler(app_manager.RyuApp):
     ''' This is the key to ryuretic: users should subclass the coupler
@@ -137,54 +138,52 @@ class coupler(app_manager.RyuApp):
         ############################################################
 	"""Now decide whether to add proactive flows or not"""
 
-	def _bld_match_vals(fields):
-            match_vals = {}     
-            fields_keys = fields.keys()
-            if 'inport' in fields_keys:
-                match_vals['inport'] = fields['inport']
-            if 'eth_type' in fields_keys:
-                match_vals['eth_type'] = fields['eth_type']
-            if 'srcmac' in fields_keys:
-                match_vals['eth_src'] = fields['srcmac']
-            if 'dstmac' in fields_keys:
-                match_vals['eth_dst'] = fields['dstmac']
-            if 'srcip' in fields_keys:
-                match_vals['ipv4_src']= fields['srcip']
-            if 'dstip' in fields_keys:
-                match_vals['ipv4_dst'] = fields['dstip']
-            if 'proto' in fields_keys:
-                match_vals['ip_proto'] = fields['proto']
-            if 'srcport' in fields_keys:
-                match_vals['tcp_src'] = fields['srcport']
-            if 'dstport' in fields_keys:
-                match_vals['tcp_dst'] = fields['dstport']
-            return match_vals
-                
-            
-
-	def _add_proactive_flow(datapath, parser, ofproto, fields,ops):
-            actions = []
-            if ops['op'] == 'drop':
-                out_port = ofproto.OFPPC_NO_RECV
-                actions.append(parser.OFPActionOutput(out_port))
-            if ops == 'redir':
-                out_port = ops['newport']
-                actions.append(parser.OFPActionOutput(out_port))
-
-            match_vals = _bld_match_vals(fields)
-            
-	    match = parser.OFPMatch(**match_vals)
-	    self.add_flow(datapath, ops['priority'], match, actions)
-
 	fields, ops = self.get_proactive_rules(datapath,parser,ofproto)
         if (fields is not None) and (ops is not None):
-            _add_proactive_flow(datapath, parser, ofproto, fields, ops)
+            self._add_proactive_flow(datapath, parser, ofproto, fields, ops)
+        ################################################################
+            
+    def _bld_match_vals(self, fields):
+        match_vals = {}     
+        fields_keys = fields['keys']
+        if 'inport' in fields_keys:
+            match_vals['in_port'] = fields['inport']
+        if 'eth_type' in fields_keys:
+            match_vals['eth_type'] = fields['eth_type']
+        if 'srcmac' in fields_keys:
+            match_vals['eth_src'] = fields['srcmac']
+        if 'dstmac' in fields_keys:
+            match_vals['eth_dst'] = fields['dstmac']
+        if 'srcip' in fields_keys:
+            match_vals['ipv4_src']= fields['srcip']
+        if 'dstip' in fields_keys:
+            match_vals['ipv4_dst'] = fields['dstip']
+        if 'proto' in fields_keys:
+            match_vals['ip_proto'] = fields['proto']
+        if 'srcport' in fields_keys:
+            match_vals['tcp_src'] = fields['srcport']
+        if 'dstport' in fields_keys:
+            match_vals['tcp_dst'] = fields['dstport']
+        if 'data' in fields_keys:
+            match_vals['data'] = fields['data']
+        return match_vals        
 
+    def _add_proactive_flow(self, datapath, parser, ofproto, fields,ops):
+        actions = []
+        if ops['op'] == 'drop':
+            out_port = ofproto.OFPPC_NO_RECV
+            actions.append(parser.OFPActionOutput(out_port))
+        if ops == 'redir':
+            out_port = ops['newport']
+            actions.append(parser.OFPActionOutput(out_port))
 
+        match_vals = self._bld_match_vals(fields)
+        
+        match = parser.OFPMatch(**match_vals)
+        self.add_flow(datapath, ops['priority'], match, actions)
     
     ########################################################################
     # Adds flow to the switch so future packets aren't sent to the cntrl 
-    
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -215,12 +214,10 @@ class coupler(app_manager.RyuApp):
                             idle_timeout=ops['idle_t'],
                             hard_timeout=ops['hard_t'],
                             match=match, instructions=inst)
-        dp.send_msg(mod) 
+        dp.send_msg(mod)
 		
-
     ############################################################    
-    # Choose the field and ops having the highest priority and 
-    # assert it.    
+    # Choose the field and ops having the highest priority and assert it.    
     def _build_FldOps(xfields,xops):
         priority = 0
         for x in len(xfields):
@@ -234,44 +231,65 @@ class coupler(app_manager.RyuApp):
         #Build match from pkt and fields
         match = self.pkt_match(fields)
 		#Build actions from pkt and ops
-        actions = self.pkt_action(pkt,ops,fields)                            
+        out_port, actions = self.pkt_action(pkt,ops,fields)
         priority = ops['priority']
         msg = fields['msg']                          
         parser, ofproto = fields['dp'].ofproto_parser, fields['ofproto']
-
+        
         # install temporary flow to avoid future packet_in. 
         # idle_t and hard_t must be set to something. 
         if ops['idle_t'] or ops['hard_t']:
             if out_port != ofproto.OFPP_FLOOD:
-                self.add_timeFlow(dp, ops, match, actions)
+                self.add_timeFlow(fields['dp'], ops, match, actions)
 
         # For ping and wget, data = None
         data = None
-        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-            data = msg.data
-
+        try:
+            if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+                data = msg.data
+        except:
+            pass
+        
         out = parser.OFPPacketOut(datapath=fields['dp'],
                                   buffer_id=msg.buffer_id,
                                   in_port=fields['inport'],
                                   actions=actions, data=data)
-
         fields['dp'].send_msg(out)
 
     #############################################################
-    #Use fields to build match 
+    #Use fields to build match
     def pkt_match(self, fields):
+        def build_match(fields):
+            match_vals = {}     
+            #fields_keys = fields.keys()
+            print "FIELDS ARE: ", fields
+            fields_keys = fields['keys']
+            if 'inport' in fields_keys:
+                match_vals['in_port'] = fields['inport']
+            if 'eth_type' in fields_keys:
+                match_vals['eth_type'] = fields['eth_type']
+            if 'srcmac' in fields_keys:
+                match_vals['eth_src'] = fields['srcmac']
+            if 'dstmac' in fields_keys:
+                match_vals['eth_dst'] = fields['dstmac']
+            if 'srcip' in fields_keys:
+                match_vals['ipv4_src']= fields['srcip']
+            if 'dstip' in fields_keys:
+                match_vals['ipv4_dst'] = fields['dstip']
+            if 'proto' in fields_keys:
+                match_vals['ip_proto'] = fields['proto']
+            if 'srcport' in fields_keys:
+                match_vals['tcp_src'] = fields['srcport']
+            if 'dstport' in fields_keys:
+                match_vals['tcp_dst'] = fields['dstport']
+            if 'data' in fields_keys:
+                match_vals['data'] = fields['data']
+            return match_vals
+        
         parser = fields['dp'].ofproto_parser
-        if fields['srcip'] != None and fields['srcip'] != None:
-            match = parser.OFPMatch(ipv4_src=fields['srcip'], 
-										ipv4_dst = fields['dst_ip'])
-        elif fields['srcip'] != None or fields['srcip'] != None:
-            matchfield=fields['srcip'] if fields['srcip'] !=None else fields['dstip']
-            match = parser.OFPMatch(ipv4_src=matchfield)
-        elif fields['srcmac'] == None:
-            match = parser.OFPMatch(in_port=fields['inport'])
-        else:
-            match = parser.OFPMatch(in_port=fields['inport'],
-                                    eth_dst=fields['dstmac'])
+        match_vals = {}
+        match_vals = build_match(fields)
+        match = parser.OFPMatch(**match_vals)        
         return match
 
     ###############################################################
@@ -286,7 +304,7 @@ class coupler(app_manager.RyuApp):
         elif ops['op'] == 'drop':
             out_port = fields['ofproto'].OFPPC_NO_RECV
             actions.append(parser.OFPActionOutput(out_port))
-        elif ops == 'redir':
+        elif ops['op'] == 'redir':
             out_port = ops['newport']
             actions.append(parser.OFPActionOutput(out_port))
         elif ops['op'] == 'mir':
@@ -296,61 +314,77 @@ class coupler(app_manager.RyuApp):
             actions.append(parser.OFPActionOutput(mir_port))
         elif ops['op'] == 'craft':
             #create and send new pkt due to craft trigger
-            self._build_pkt(ops, fields) ##need to remove pkt ##########
+            self._build_pkt(fields, ops) 
             #Now drop the arrived packet
             out_port = fields['ofproto'].OFPPC_NO_RECV
             actions.append(parser.OFPActionOutput(out_port))
                                                 
-        return actions
-
+        return out_port, actions
+    
     #More work is required here to implement active testing for NATs etc.
     # Note fields object must be completely rewritten for crafted packet
     # Probably need to make fields['ptype'] = ['arp', 'ipv4']
-    def _build_pkt(self, fields):
+    def _build_pkt(self, fields, ops):
         pkt_out = packet.Packet()
+        pkt_ipv4 = pkt_out.get_protocol(ipv4.ipv4)
+        pkt_icmp = pkt_out.get_protocol(icmp.icmp)
+
+        def addIPv4(pkt_out, fields):
+            pkt_out.add_protocol(ipv4.ipv4(dst=fields['dstip'],
+                                 src=fields['srcip'],
+                                 proto=fields['proto']))
+            return pkt_out
+
         pkt_out.add_protocol(ethernet.ethernet(ethertype=fields['ethtype'],
                                                dst=fields['dstmac'],
                                                src=fields['srcmac']))
-        # Add if ARP is required                           
-                            
+        # Add if ARP                                           
         if 'arp' in fields['ptype']:
             pkt_out.add_protocol(arp.arp(opcode=arp.ARP_REPLY,
                                  src_mac=fields['srcmac'],
                                  src_ip=fields['srcip'],
                                  dst_mac=fields['dstmac'],
                                  dst_ip=fields['dstip']))
-
-        if ipv4 in fields['ptype']:
-            pkt_out.add_protocol(ipv4.ipv4(dst=fields['dstip'],
-                                 src=fields['srcip'],
-                                 proto=fields['proto']))
-
+        # Add if IPv4
+        if 'ipv4' in fields['ptype']:
+            pkt_out = addIPv4(pkt_out,fields)
+            
+        # Add if ICMP
         if 'icmp' in fields['ptype']:
+            pkt_out = addIPv4(pkt_out,fields)
+            
             pkt_out.add_protocol(icmp.icmp(type_=icmp.ICMP_ECHO_REPLY,
                                  code=icmp.ICMP_ECHO_REPLY_CODE,
                                  csum=0,
-                                 data=fields['data']))
-								 
+                                 data=None))
+        # Add if UDP    
+        if 'udp' in fields['ptype']:
+            pkt_out = addIPv4(pkt_out,fields)
+            pkt_out.add_protocol(udp.udp(dst_port=fields['dstport'],
+				bits=fields['bits'],option=fields['opt'],
+                                src_port=fields['srcport']))
+        # Add if TCP                         	 
         if 'tcp' in fields['ptype']:
+            pkt_out = addIPv4(pkt_out,fields)
             pkt_out.add_protocol(tcp.tcp(dst_port=fields['dstport'],
 				bits=fields['bits'],option=fields['opt'],
-                                #=str('\\x00' * 4),
                                 src_port=fields['srcport']))
-                             
-        #pkt.add_protocol('\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\
-            #\n\\x0b\\x0c\\r\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\
-            #\x17\\x18\\x19\\x1a\\x1b\\x1c\\x1d\\x1e\\x1f')
-
+        #Add covert channel information                    
+        if fields['com'] != None:
+            pkt_out.add_protocol(fields['com'])
+            
+        #Send crafted packet            
         self._send_packet(fields['dp'], ops['newport'], pkt_out)
 	
-	#Receive crafted packet and send it to the switch
+    #Receive crafted packet and send it to the switch
     def _send_packet(self, datapath, port, pkt_out):
         if port == None: print "Port not defined" 
         #This methods sends the crafted message to the switch
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+        #print pkt_out
         pkt_out.serialize()
-        self.logger.info("packet-out %s" % (pkt_out,))
+        #self.logger.info("packet-out %s" % (pkt_out,))
         data = pkt_out.data
         actions = [parser.OFPActionOutput(port=port)]
         out = parser.OFPPacketOut(datapath=datapath,
@@ -358,6 +392,7 @@ class coupler(app_manager.RyuApp):
                                   in_port=ofproto.OFPP_CONTROLLER,
                                   actions=actions,
                                   data=data)
+        print "\nout: ", out, "\n"
         datapath.send_msg(out)
 		
     #Clean up and disconnect ports. Controller going down  
@@ -428,3 +463,22 @@ pbb_uca	Integer 8bit	PBB UCA header field (EXT-256 Old version of ONF Extension)
 tcp_flags	Integer 16bit	TCP flags (EXT-109 ONF Extension)
 actset_output	Integer 32bit	Output port from action set metadata (EXT-233 ONF Extension)
 """
+
+
+
+############Obsolete code pending delete
+##    def _handle_icmp(self, datapath, port, pkt_ethernet, pkt_ipv4, pkt_icmp):
+##        if pkt_icmp.type != icmp.ICMP_ECHO_REQUEST:
+##            return
+##        pkt = packet.Packet()
+##        pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype,
+##                        dst=pkt_ethernet.src,
+##                        src=self.hw_addr))
+##        pkt.add_protocol(ipv4.ipv4(dst=pkt_ipv4.src,
+##                        src=self.ip_addr,
+##                        proto=pkt_ipv4.proto))
+##        pkt.add_protocol(icmp.icmp(type_=icmp.ICMP_ECHO_REPLY,
+##                        code=icmp.ICMP_ECHO_REPLY_CODE,
+##                        csum=0,
+##                        data=pkt_icmp.data))
+##        self._send_packet(datapath, port, pkt)
