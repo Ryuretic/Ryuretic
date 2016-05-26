@@ -13,4 +13,4 @@ PYTHONPATH=. ./bin/ryu-manager ryu/app/Ryuretic_Intf.py
 This will activate the coupler and it will call the required libraries and instantiate any required modules for our network
 applications. All changes are made in the Ryuretic_Intf.py file. 
 
-Visit Ryuretic Labs for some hands on exercises using this framework. [Ryuretic Labs]{https://github.gatech.edu/jcox70/RyureticLabs}
+Visit Ryuretic Labs for some hands on exercises using this framework. [Ryuretic Labs](https://github.gatech.edu/jcox70/RyureticLabs)
